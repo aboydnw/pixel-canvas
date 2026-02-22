@@ -1,22 +1,30 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { COLORS } from './lib/constants'
 import { usePixelGrid } from './hooks/usePixelGrid'
 import { PixelCanvas } from './components/PixelCanvas'
 import { ColorPicker } from './components/ColorPicker'
+import { ConfirmModal } from './components/ConfirmModal'
 
 export default function App() {
   const [selectedColor, setSelectedColor] = useState<string>(COLORS[0])
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
   const {
     gridRef,
     paintCell,
+    clearGrid,
     isConnected,
     isLoading,
     participantCount,
     registerDrawFunctions,
   } = usePixelGrid()
 
+  const handleClearConfirm = useCallback(() => {
+    clearGrid()
+    setShowClearConfirm(false)
+  }, [clearGrid])
+
   return (
-    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-[#1a1a2e]">
+    <div className="relative flex min-h-dvh flex-col items-center justify-center gap-4 overflow-hidden bg-[#1a1a2e]">
       {/* Connection indicator + participant count */}
       <div className="fixed top-4 right-4 z-10 flex items-center gap-2">
         {participantCount > 0 && (
@@ -51,13 +59,24 @@ export default function App() {
         />
       </div>
 
-      {/* Color picker */}
+      {/* Toolbar: color picker + clear */}
       {!isLoading && (
         <ColorPicker
           selectedColor={selectedColor}
           onSelectColor={setSelectedColor}
+          onClear={() => setShowClearConfirm(true)}
         />
       )}
+
+      {/* Clear confirmation modal */}
+      <ConfirmModal
+        open={showClearConfirm}
+        title="Clear canvas"
+        message="This will erase every pixel for all participants. This action cannot be undone."
+        confirmLabel="Clear"
+        onConfirm={handleClearConfirm}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </div>
   )
 }

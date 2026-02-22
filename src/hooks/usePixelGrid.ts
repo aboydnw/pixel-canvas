@@ -50,6 +50,19 @@ export function usePixelGrid() {
     batchQueue.current.push({ row, col, color })
   }, [])
 
+  const clearGrid = useCallback(() => {
+    gridRef.current.clear()
+    drawFullGridRef.current?.(gridRef.current)
+    // Broadcast clear to other clients
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'clear',
+      payload: {},
+    })
+    // Persist immediately
+    saveSnapshot()
+  }, [saveSnapshot])
+
   useEffect(() => {
     let batchInterval: ReturnType<typeof setInterval>
     let snapshotInterval: ReturnType<typeof setInterval>
@@ -81,6 +94,12 @@ export function usePixelGrid() {
       })
 
       channel
+        .on('broadcast', { event: 'clear' }, () => {
+          if (!mounted) return
+          console.log('[rt] ← received clear')
+          gridRef.current.clear()
+          drawFullGridRef.current?.(gridRef.current)
+        })
         .on('broadcast', { event: 'paint' }, (msg) => {
           if (!mounted) return
           console.log('[rt] ← received broadcast', msg)
@@ -151,6 +170,7 @@ export function usePixelGrid() {
   return {
     gridRef,
     paintCell,
+    clearGrid,
     isConnected,
     isLoading,
     participantCount,
