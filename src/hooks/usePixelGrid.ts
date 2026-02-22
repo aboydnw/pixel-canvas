@@ -81,9 +81,10 @@ export function usePixelGrid() {
       })
 
       channel
-        .on('broadcast', { event: 'paint' }, ({ payload }) => {
+        .on('broadcast', { event: 'paint' }, (msg) => {
           if (!mounted) return
-          const cells = payload.cells as CellUpdate[]
+          console.log('[rt] ← received broadcast', msg)
+          const cells = msg.payload.cells as CellUpdate[]
           for (const { row, col, color } of cells) {
             const key = `${row}-${col}`
             gridRef.current.set(key, color)
@@ -93,10 +94,12 @@ export function usePixelGrid() {
         .on('presence', { event: 'sync' }, () => {
           if (!mounted) return
           const state = channel.presenceState()
+          console.log('[rt] presence sync, count:', Object.keys(state).length)
           setParticipantCount(Object.keys(state).length)
         })
-        .subscribe(async (status) => {
+        .subscribe(async (status, err) => {
           if (!mounted) return
+          console.log('[rt] subscribe status:', status, err ?? '')
           setIsConnected(status === 'SUBSCRIBED')
           if (status === 'SUBSCRIBED') {
             await channel.track({})
@@ -106,14 +109,15 @@ export function usePixelGrid() {
       channelRef.current = channel
 
       // Outgoing batch flush (capped to avoid Realtime rate limits)
-      batchInterval = setInterval(() => {
+      batchInterval = setInterval(async () => {
         if (batchQueue.current.length === 0) return
         const cells = batchQueue.current.splice(0, BATCH_MAX_CELLS)
-        channel.send({
+        const result = await channel.send({
           type: 'broadcast',
           event: 'paint',
           payload: { cells },
         })
+        console.log('[rt] → sent batch', cells.length, 'cells, result:', result)
       }, BATCH_INTERVAL_MS)
 
       // Periodic DB snapshot
