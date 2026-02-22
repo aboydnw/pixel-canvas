@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import {
   BROADCAST_CHANNEL,
   BATCH_INTERVAL_MS,
+  BATCH_MAX_CELLS,
   SNAPSHOT_INTERVAL_MS,
 } from '../lib/constants'
 
@@ -104,10 +105,10 @@ export function usePixelGrid() {
 
       channelRef.current = channel
 
-      // Outgoing batch flush
+      // Outgoing batch flush (capped to avoid Realtime rate limits)
       batchInterval = setInterval(() => {
         if (batchQueue.current.length === 0) return
-        const cells = batchQueue.current.splice(0)
+        const cells = batchQueue.current.splice(0, BATCH_MAX_CELLS)
         channel.send({
           type: 'broadcast',
           event: 'paint',
@@ -124,11 +125,16 @@ export function usePixelGrid() {
     const handleBeforeUnload = () => {
       saveSnapshot()
     }
+    const handleVisibilityChange = () => {
+      if (document.hidden) saveSnapshot()
+    }
     window.addEventListener('beforeunload', handleBeforeUnload)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       mounted = false
       window.removeEventListener('beforeunload', handleBeforeUnload)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       clearInterval(batchInterval)
       clearInterval(snapshotInterval)
       saveSnapshot()

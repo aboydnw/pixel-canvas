@@ -19,10 +19,31 @@ function getCellSize() {
   return window.innerWidth < 640 ? CELL_SIZE_MOBILE : CELL_SIZE_DESKTOP
 }
 
+/** Bresenham's line: returns every [row, col] between two cells (inclusive). */
+function cellsOnLine(r0: number, c0: number, r1: number, c1: number): [number, number][] {
+  const cells: [number, number][] = []
+  let dr = Math.abs(r1 - r0)
+  let dc = Math.abs(c1 - c0)
+  const sr = r0 < r1 ? 1 : -1
+  const sc = c0 < c1 ? 1 : -1
+  let err = dc - dr
+  let r = r0
+  let c = c0
+
+  while (true) {
+    cells.push([r, c])
+    if (r === r1 && c === c1) break
+    const e2 = 2 * err
+    if (e2 > -dr) { err -= dr; c += sc }
+    if (e2 < dc) { err += dc; r += sr }
+  }
+  return cells
+}
+
 export function PixelCanvas({ selectedColor, gridRef, paintCell, registerDrawFunctions }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const isPointerDown = useRef(false)
-  const lastPaintedCell = useRef<string | null>(null)
+  const lastCell = useRef<[number, number] | null>(null)
   const cellSizeRef = useRef(getCellSize())
 
   const drawCell: DrawCellFn = useCallback((row: number, col: number, color: string) => {
@@ -120,17 +141,28 @@ export function PixelCanvas({ selectedColor, gridRef, paintCell, registerDrawFun
     if (!cell) return
 
     const [row, col] = cell
-    const key = `${row}-${col}`
+    const prev = lastCell.current
 
-    if (key === lastPaintedCell.current) return
-    lastPaintedCell.current = key
-    paintCell(row, col, selectedColor)
+    if (prev && prev[0] === row && prev[1] === col) return
+
+    if (prev) {
+      // Interpolate all cells between previous and current position
+      const line = cellsOnLine(prev[0], prev[1], row, col)
+      // Skip first cell — it was already painted on the previous event
+      for (let i = 1; i < line.length; i++) {
+        paintCell(line[i][0], line[i][1], selectedColor)
+      }
+    } else {
+      paintCell(row, col, selectedColor)
+    }
+
+    lastCell.current = [row, col]
   }, [cellFromEvent, paintCell, selectedColor])
 
   const handlePointerDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     if ('touches' in e) e.preventDefault()
     isPointerDown.current = true
-    lastPaintedCell.current = null
+    lastCell.current = null
     handlePaint(e)
   }, [handlePaint])
 
@@ -142,7 +174,7 @@ export function PixelCanvas({ selectedColor, gridRef, paintCell, registerDrawFun
 
   const handlePointerUp = useCallback(() => {
     isPointerDown.current = false
-    lastPaintedCell.current = null
+    lastCell.current = null
   }, [])
 
   return (

@@ -12,5 +12,6 @@ export const COLORS = [
   '#7b2d8b', // purple
 ] as const
 export const BROADCAST_CHANNEL = 'pixel-canvas'
-export const BATCH_INTERVAL_MS = 80
+export const BATCH_INTERVAL_MS = 100
+export const BATCH_MAX_CELLS = 50
 export const SNAPSHOT_INTERVAL_MS = 30_000
