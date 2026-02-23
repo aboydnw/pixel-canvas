@@ -27,26 +27,39 @@ function RefreshIcon() {
 }
 
 export function ColorPicker({ selectedColor, onSelectColor, onClear }: Props) {
-  return (
-    <div className="flex items-center gap-3 rounded-full bg-black/40 px-5 py-3 backdrop-blur-md">
-      {COLORS.map((color) => (
-        <button
-          key={color}
-          onClick={() => onSelectColor(color)}
-          className="h-8 w-8 rounded-full transition-transform hover:scale-110 focus:outline-none"
-          style={{
-            backgroundColor: color,
-            boxShadow:
-              selectedColor === color
-                ? `0 0 0 3px white, 0 0 12px ${color}80`
-                : '0 1px 3px rgba(0,0,0,0.3)',
-            transform: selectedColor === color ? 'scale(1.15)' : undefined,
-          }}
-          aria-label={`Select color ${color}`}
-        />
-      ))}
+  const half = Math.ceil(COLORS.length / 2)
+  const topRow = COLORS.slice(0, half)
+  const bottomRow = COLORS.slice(half)
 
-      <div className="mx-1 h-6 w-px bg-white/20" />
+  const renderSwatch = (color: string) => (
+    <button
+      key={color}
+      onClick={() => onSelectColor(color)}
+      className="h-8 w-8 rounded-full transition-transform hover:scale-110 focus:outline-none"
+      style={{
+        backgroundColor: color,
+        boxShadow:
+          selectedColor === color
+            ? `0 0 0 3px white, 0 0 12px ${color}80`
+            : '0 1px 3px rgba(0,0,0,0.3)',
+        transform: selectedColor === color ? 'scale(1.15)' : undefined,
+      }}
+      aria-label={`Select color ${color}`}
+    />
+  )
+
+  return (
+    <div className="flex items-center gap-3 rounded-2xl bg-black/40 px-5 py-3 backdrop-blur-md">
+      <div className="flex flex-col gap-3">
+        <div className="flex justify-center gap-3">
+          {topRow.map(renderSwatch)}
+        </div>
+        <div className="flex justify-center gap-3">
+          {bottomRow.map(renderSwatch)}
+        </div>
+      </div>
+
+      <div className="mx-1 h-10 w-px bg-white/20" />
 
       <button
         onClick={onClear}
