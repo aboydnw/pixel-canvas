@@ -1,0 +1,372 @@
+# Pixel Canvas — Admin Controls + Screenshot Implementation Plan
+
+## Overview
+Add admin start/pause controls, role-based clear, and screenshot export to the existing pixel-canvas app. Admin access via URL query params (lightweight, intentional). Paused state is authoritative across all clients via Broadcast + DB.
+
+---
+
+## Migration SQL
+
+Run via Supabase SQL editor:
+
+```sql
+-- UP
+alter table pixel_grid
+  add column lock_state text not null default 'open'
+    check (lock_state in ('open', 'paused')),
+  add column lock_updated_at timestamptz not null default now();
+
+-- DOWN
+alter table pixel_grid
+  drop column lock_updated_at,
+  drop column lock_state;
+```
+
+---
+
+## Environment
+
+Add to `.env.local` and Vercel env vars:
+
+```
+VITE_ADMIN_KEY=<generate-random-16-char-string>
+```
+
+Admin URL: `?admin=1&key=<ADMIN_KEY>`
+
+---
+
+## Phase 1 — Lock State Infrastructure
+
+### 1a. `src/lib/constants.ts` — Add event constants
+
+Add these below existing constants:
+
+```ts
+// Broadcast event names
+export const EVENT_PAINT = 'paint'
+export const EVENT_CLEAR = 'clear'
+export const EVENT_LOCK = 'lock'
+```
+
+### 1b. `src/hooks/usePixelGrid.ts` — Core lock state changes
+
+This is the biggest change. The hook needs:
+
+**New parameter:** `isAdmin: boolean` (passed in from App)
+
+**New state:**
+```ts
+const [lockState, setLockStateLocal] = useState<'open' | 'paused'>('open')
+```
+
+**Derived value:**
+```ts
+const isEditingEnabled = lockState === 'open' || isAdmin
+```
+
+**On init — update the existing fetch:**
+Change `.select('state')` to `.select('state, lock_state')` and set `lockState` from the result.
+
+**New function: `setLockState(next: 'open' | 'paused')`** (admin only):
+1. Update DB: `supabase.from('pixel_grid').update({ lock_state: next, lock_updated_at: new Date().toISOString() }).eq('id', 'main')`
+2. Broadcast: `channel.send({ type: 'broadcast', event: EVENT_LOCK, payload: { lock_state: next } })`
+3. `setLockStateLocal(next)`
+4. If `next === 'paused'`: call `saveSnapshot()` immediately so late joiners see current state
+
+**Guard existing functions:**
+- `paintCell`: early return if `!isEditingEnabled`
+- `clearGrid`: early return if `!isAdmin` (admin can clear regardless of lock state, per requirements)
+
+**New broadcast handler — add in the channel subscription chain:**
+```ts
+.on('broadcast', { event: EVENT_LOCK }, (msg) => {
+  if (!mounted) return
+  const next = msg.payload.lock_state as 'open' | 'paused'
+  setLockStateLocal(next)
+  if (next === 'paused') {
+    // Discard any pending outgoing paint batch to prevent stale updates
+    batchQueue.current = []
+  }
+})
+```
+
+**Replace existing string literals** `'paint'` and `'clear'` with `EVENT_PAINT` and `EVENT_CLEAR` constants throughout the hook. Import them from constants.
+
+**Updated return value — add:**
+```ts
+return {
+  ...existing,
+  lockState,
+  isEditingEnabled,
+  setLockState,  // new
+}
+```
+
+### 1c. `src/App.tsx` — Admin detection + pass `isAdmin` to hook
+
+**Add admin detection (top of component):**
+```ts
+const isAdmin = useMemo(() => {
+  const params = new URLSearchParams(window.location.search)
+  return params.get('admin') === '1' && params.get('key') === import.meta.env.VITE_ADMIN_KEY
+}, [])
+```
+
+**Update hook call:**
+```ts
+const { ..., lockState, isEditingEnabled, setLockState } = usePixelGrid(isAdmin)
+```
+
+---
+
+## Phase 2 — UI Changes
+
+### 2a. `src/App.tsx` — Admin toolbar
+
+Add above the canvas area, only when `isAdmin`:
+
+```tsx
+{isAdmin && (
+  <div className="fixed top-4 left-4 z-50 flex items-center gap-2">
+    <button
+      onClick={() => setLockState(lockState === 'open' ? 'paused' : 'open')}
+      className="rounded-full bg-black/50 px-4 py-2 text-sm font-medium text-white backdrop-blur-md transition-colors hover:bg-black/70"
+    >
+      {lockState === 'open' ? '⏸ Pause' : '▶ Start'}
+    </button>
+    <button
+      onClick={() => setShowClearConfirm(true)}
+      className="rounded-full bg-black/50 px-4 py-2 text-sm font-medium text-white backdrop-blur-md transition-colors hover:bg-black/70"
+    >
+      🗑 Clear
+    </button>
+  </div>
+)}
+```
+
+### 2b. `src/App.tsx` — Paused banner for non-admin users
+
+Add near the connection indicator area:
+
+```tsx
+{!isEditingEnabled && !isAdmin && (
+  <div className="fixed top-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-yellow-500/90 px-4 py-2 text-sm font-medium text-black">
+    ⏸ Canvas is paused
+  </div>
+)}
+```
+
+### 2c. `src/components/ColorPicker.tsx` — Conditional clear button
+
+The component currently receives `onClear` as a required prop. Change the interface:
+
+```ts
+interface Props {
+  selectedColor: string
+  onSelectColor: (color: string) => void
+  onClear?: () => void  // make optional
+}
+```
+
+Conditionally render the divider + clear button only when `onClear` is provided:
+
+```tsx
+{onClear && (
+  <>
+    <div className="mx-1 h-10 w-px bg-white/20" />
+    <button onClick={onClear} ...>
+      <RefreshIcon />
+    </button>
+  </>
+)}
+```
+
+In `App.tsx`, only pass `onClear` when admin:
+
+```tsx
+<ColorPicker
+  selectedColor={selectedColor}
+  onSelectColor={setSelectedColor}
+  onClear={isAdmin ? () => setShowClearConfirm(true) : undefined}
+/>
+```
+
+### 2d. `src/components/PixelCanvas.tsx` — Read-only mode
+
+**Add `isReadOnly` prop:**
+
+```ts
+interface Props {
+  selectedColor: string
+  gridRef: React.RefObject<Map<string, string>>
+  paintCell: (row: number, col: number, color: string) => void
+  registerDrawFunctions: (drawCell: DrawCellFn, drawFullGrid: DrawFullGridFn) => void
+  isReadOnly: boolean  // new
+}
+```
+
+**Guard pointer handlers:**
+In `handlePointerDown`, `handlePointerMove` — add early return:
+
+```ts
+const handlePointerDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+  if (isReadOnly) return  // <-- add this
+  // ...existing code
+}, [handlePaint, isReadOnly])
+```
+
+Same for `handlePointerMove`.
+
+**Update cursor style on the canvas element:**
+```tsx
+className={`block rounded-sm ${isReadOnly ? 'cursor-not-allowed' : 'cursor-crosshair'}`}
+```
+
+**In `App.tsx`, pass it:**
+```tsx
+<PixelCanvas
+  ...existing props
+  isReadOnly={!isEditingEnabled}
+/>
+```
+
+**Important:** Do NOT draw any overlay onto the canvas element itself. The paused visual cue is the banner in App.tsx. This keeps the canvas clean for screenshot export.
+
+---
+
+## Phase 3 — Screenshot Export
+
+### 3a. New file: `src/lib/exportCanvas.ts`
+
+```ts
+export function exportCanvasPng(canvas: HTMLCanvasElement) {
+  canvas.toBlob((blob) => {
+    if (!blob) return
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `pixel-canvas-${formatTimestamp()}.png`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }, 'image/png')
+}
+
+function formatTimestamp(): string {
+  const now = new Date()
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+}
+```
+
+### 3b. Expose canvas ref from `PixelCanvas`
+
+**Option chosen:** Use the existing `registerDrawFunctions` pattern. Add a third registration for the canvas ref:
+
+Update `usePixelGrid.ts` to add:
+```ts
+const canvasElRef = useRef<HTMLCanvasElement | null>(null)
+
+const registerDrawFunctions = useCallback(
+  (drawCell: DrawCellFn, drawFullGrid: DrawFullGridFn, canvasEl?: HTMLCanvasElement | null) => {
+    drawCellRef.current = drawCell
+    drawFullGridRef.current = drawFullGrid
+    if (canvasEl !== undefined) canvasElRef.current = canvasEl
+  },
+  []
+)
+```
+
+Return `canvasElRef` from the hook.
+
+In `PixelCanvas.tsx`, update the registration call:
+```ts
+registerDrawFunctions(drawCell, drawFullGrid, canvasRef.current)
+```
+
+### 3c. `src/App.tsx` — Screenshot button (all users)
+
+Add a camera/download button visible to everyone, positioned bottom-right:
+
+```tsx
+<button
+  onClick={() => canvasElRef.current && exportCanvasPng(canvasElRef.current)}
+  className="fixed bottom-4 right-4 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white/60 backdrop-blur-md transition-colors hover:bg-black/60 hover:text-white"
+  title="Save screenshot"
+  aria-label="Save screenshot"
+>
+  📷
+</button>
+```
+
+This works regardless of lock state — users can screenshot while paused or open.
+
+**Retina note:** The canvas is already scaled for `devicePixelRatio` (see `resizeCanvas` in PixelCanvas.tsx). The exported PNG will be at retina resolution — this is a feature, not a bug (higher quality export).
+
+---
+
+## Phase 4 — Deploy + Verify
+
+### Deploy steps
+1. Run migration SQL in Supabase dashboard
+2. Add `VITE_ADMIN_KEY` to Vercel environment variables
+3. `npm run build` — verify clean build
+4. Deploy to Vercel
+5. Push to GitHub
+
+### Verification Checklist
+
+| # | Test | Expected |
+|---|------|----------|
+| 1 | Regular URL — no admin controls visible | ✅ Only color picker (no clear button) + screenshot button |
+| 2 | Admin URL — admin toolbar visible | ✅ Pause/Start + Clear buttons, plus clear button in color picker |
+| 3 | Admin pauses → regular user cannot paint | ✅ Clicks do nothing, cursor shows not-allowed, paused banner visible |
+| 4 | Admin resumes → regular user regains paint | ✅ Immediate, no refresh needed |
+| 5 | Admin clears while paused | ✅ Canvas clears for everyone, persists to DB |
+| 6 | New tab joins while paused | ✅ Loads existing grid (read-only) + sees paused banner |
+| 7 | Refresh preserves lock state | ✅ Lock state loaded from DB on init |
+| 8 | Screenshot while open (regular user) | ✅ PNG downloads, contains only canvas pixels |
+| 9 | Screenshot while paused (regular user) | ✅ PNG downloads, no pause overlay in image |
+| 10 | In-flight paint batch discarded on pause | ✅ No stale cells arrive after admin pauses |
+| 11 | Participant count still works | ✅ Presence tracking unaffected |
+| 12 | Admin can paint while paused | ✅ Admin bypasses lock |
+
+---
+
+## Files Changed Summary
+
+| File | Action |
+|------|--------|
+| `src/lib/constants.ts` | Add `EVENT_PAINT`, `EVENT_CLEAR`, `EVENT_LOCK` |
+| `src/lib/exportCanvas.ts` | **New** — screenshot utility |
+| `src/hooks/usePixelGrid.ts` | Add `isAdmin` param, lock state, `setLockState`, `clearGrid` guard, `EVENT_LOCK` handler, queue discard on pause, canvas ref registration |
+| `src/App.tsx` | Add admin detection, admin toolbar, paused banner, screenshot button, conditional `onClear` |
+| `src/components/PixelCanvas.tsx` | Add `isReadOnly` prop, guard pointer handlers, cursor style |
+| `src/components/ColorPicker.tsx` | Make `onClear` optional, conditionally render clear button |
+| `src/components/ConfirmModal.tsx` | No changes |
+| `.env.local` | Add `VITE_ADMIN_KEY` |
+
+---
+
+## Risk Register
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| In-flight paint lands after pause | Low | Discard `batchQueue` on `EVENT_LOCK` receive |
+| Late joiner sees stale grid when paused | Medium | `setLockState('paused')` triggers immediate `saveSnapshot()` |
+| Admin key in client bundle | Low (accepted) | Throwaway app; upgrade path: Edge Function |
+| Canvas overlay in screenshot | Medium | Paused cue is CSS banner, not drawn on canvas |
+| `registerDrawFunctions` called before canvas mounted | Low | Canvas ref may be null on first call; guard with `canvasEl !== undefined` check |
+| Multiple admins conflict | Low | Last-write-wins; only one admin expected |
+
+---
+
+## Status Report Format
+After each phase, return:
+- ✅/❌ for each sub-task listed above
+- Files created/modified with a brief description of changes
+- Migration confirmed applied (yes/no)
+- Any deviations and why
+- Issues or things to watch

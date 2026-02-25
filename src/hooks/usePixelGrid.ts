@@ -19,15 +19,23 @@ export function usePixelGrid() {
   const channelRef = useRef<RealtimeChannel | null>(null)
   const drawCellRef = useRef<DrawCellFn | null>(null)
   const drawFullGridRef = useRef<DrawFullGridFn | null>(null)
+  const canvasElRef = useRef<HTMLCanvasElement | null>(null)
 
   const [isConnected, setIsConnected] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [participantCount, setParticipantCount] = useState(0)
 
   const registerDrawFunctions = useCallback(
-    (drawCell: DrawCellFn, drawFullGrid: DrawFullGridFn) => {
+    (
+      drawCell: DrawCellFn,
+      drawFullGrid: DrawFullGridFn,
+      canvasEl?: HTMLCanvasElement | null
+    ) => {
       drawCellRef.current = drawCell
       drawFullGridRef.current = drawFullGrid
+      if (canvasEl !== undefined) {
+        canvasElRef.current = canvasEl
+      }
     },
     []
   )
@@ -169,6 +177,7 @@ export function usePixelGrid() {
 
   return {
     gridRef,
+    canvasElRef,
     paintCell,
     clearGrid,
     isConnected,

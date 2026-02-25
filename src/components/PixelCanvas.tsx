@@ -12,7 +12,11 @@ interface Props {
   selectedColor: string
   gridRef: React.RefObject<Map<string, string>>
   paintCell: (row: number, col: number, color: string) => void
-  registerDrawFunctions: (drawCell: DrawCellFn, drawFullGrid: DrawFullGridFn) => void
+  registerDrawFunctions: (
+    drawCell: DrawCellFn,
+    drawFullGrid: DrawFullGridFn,
+    canvasEl?: HTMLCanvasElement | null
+  ) => void
 }
 
 function getCellSize() {
@@ -102,7 +106,7 @@ export function PixelCanvas({ selectedColor, gridRef, paintCell, registerDrawFun
   }, [drawFullGrid, gridRef])
 
   useEffect(() => {
-    registerDrawFunctions(drawCell, drawFullGrid)
+    registerDrawFunctions(drawCell, drawFullGrid, canvasRef.current)
     resizeCanvas()
 
     window.addEventListener('resize', resizeCanvas)

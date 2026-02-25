@@ -4,12 +4,32 @@ import { usePixelGrid } from './hooks/usePixelGrid'
 import { PixelCanvas } from './components/PixelCanvas'
 import { ColorPicker } from './components/ColorPicker'
 import { ConfirmModal } from './components/ConfirmModal'
+import { exportCanvasPng } from './lib/exportCanvas'
+
+function CameraIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="13" r="4" />
+    </svg>
+  )
+}
 
 export default function App() {
   const [selectedColor, setSelectedColor] = useState<string>(COLORS[0])
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const {
     gridRef,
+    canvasElRef,
     paintCell,
     clearGrid,
     isConnected,
@@ -22,6 +42,11 @@ export default function App() {
     clearGrid()
     setShowClearConfirm(false)
   }, [clearGrid])
+
+  const handleScreenshot = useCallback(() => {
+    if (!canvasElRef.current) return
+    exportCanvasPng(canvasElRef.current)
+  }, [canvasElRef])
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center gap-4 overflow-hidden bg-[#1a1a2e]">
@@ -66,6 +91,17 @@ export default function App() {
           onSelectColor={setSelectedColor}
           onClear={() => setShowClearConfirm(true)}
         />
+      )}
+
+      {!isLoading && (
+        <button
+          onClick={handleScreenshot}
+          className="fixed right-4 bottom-4 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white/70 backdrop-blur-md transition-colors hover:bg-black/60 hover:text-white focus:outline-none"
+          title="Save screenshot"
+          aria-label="Save screenshot"
+        >
+          <CameraIcon />
+        </button>
       )}
 
       {/* Clear confirmation modal */}
