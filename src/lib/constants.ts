@@ -14,6 +14,9 @@ export const COLORS = [
   '#ffffff', // white
 ] as const
 export const BROADCAST_CHANNEL = 'pixel-canvas'
+export const EVENT_PAINT = 'paint'
+export const EVENT_CLEAR = 'clear'
+export const EVENT_LOCK = 'lock'
 export const BATCH_INTERVAL_MS = 100
 export const BATCH_MAX_CELLS = 50
 export const SNAPSHOT_INTERVAL_MS = 30_000

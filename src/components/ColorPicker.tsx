@@ -3,7 +3,7 @@ import { COLORS } from '../lib/constants'
 interface Props {
   selectedColor: string
   onSelectColor: (color: string) => void
-  onClear: () => void
+  onClear?: () => void
 }
 
 function RefreshIcon() {
@@ -59,16 +59,19 @@ export function ColorPicker({ selectedColor, onSelectColor, onClear }: Props) {
         </div>
       </div>
 
-      <div className="mx-1 h-10 w-px bg-white/20" />
-
-      <button
-        onClick={onClear}
-        className="flex h-8 w-8 items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white/80 focus:outline-none"
-        aria-label="Clear canvas"
-        title="Clear canvas"
-      >
-        <RefreshIcon />
-      </button>
+      {onClear && (
+        <>
+          <div className="mx-1 h-10 w-px bg-white/20" />
+          <button
+            onClick={onClear}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white/80 focus:outline-none"
+            aria-label="Clear canvas"
+            title="Clear canvas"
+          >
+            <RefreshIcon />
+          </button>
+        </>
+      )}
     </div>
   )
 }

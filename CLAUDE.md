@@ -23,7 +23,6 @@ Defined in `.env.local` (git-ignored via `*.local` pattern):
 
 - `VITE_SUPABASE_URL` — Supabase project URL (uses `.supabase.co` domain)
 - `VITE_SUPABASE_ANON_KEY` — Supabase anonymous/public key
-
 These are also set in Vercel for production.
 
 ## Architecture
@@ -57,12 +56,13 @@ src/
 ├── index.css                    # Tailwind import + global touch overrides
 ├── components/
 │   ├── PixelCanvas.tsx          # <canvas> element, pointer/touch handling, drawing
-│   ├── ColorPicker.tsx          # Color swatch toolbar + clear button
+│   ├── ColorPicker.tsx          # Color swatch toolbar + optional clear (admin only)
 │   └── ConfirmModal.tsx         # Generic confirmation dialog
 ├── hooks/
 │   └── usePixelGrid.ts          # Core state: grid Map, broadcast, batching, snapshots
 └── lib/
     ├── constants.ts             # Grid dimensions, colors, timing constants
+    ├── exportCanvas.ts          # Screenshot export (Web Share on mobile, download on desktop)
     └── supabase.ts              # Supabase client singleton
 ```
 
@@ -74,7 +74,9 @@ Single table `pixel_grid` in the `public` schema:
 create table pixel_grid (
   id text primary key default 'main',
   state jsonb not null default '{}',
-  updated_at timestamptz default now()
+  updated_at timestamptz default now(),
+  lock_state text not null default 'open' check (lock_state in ('open', 'paused')),
+  lock_updated_at timestamptz not null default now()
 );
 ```
 
@@ -88,7 +90,12 @@ Channel name: `pixel-canvas`
 
 - **`paint`** — `{ cells: [{ row, col, color }, ...] }` — batched cell updates
 - **`clear`** — `{}` — clears the entire grid for all clients
+- **`lock`** — `{ lock_state: 'open' | 'paused' }` — admin start/pause; when paused, non-admin users cannot paint
 - **Presence** — tracks connected user count via `presenceState()`
+
+### Admin controls
+
+Admin URL: `?admin=1`. Admin can: start/pause editing, clear canvas. When paused, non-admin users see a banner and cannot paint; admin can still paint. Lock state is persisted in DB and broadcast in real time.
 
 ## Key Constants
 

@@ -6,6 +6,9 @@ import {
   BATCH_INTERVAL_MS,
   BATCH_MAX_CELLS,
   SNAPSHOT_INTERVAL_MS,
+  EVENT_PAINT,
+  EVENT_CLEAR,
+  EVENT_LOCK,
 } from '../lib/constants'
 
 type CellUpdate = { row: number; col: number; color: string }
@@ -13,7 +16,7 @@ type CellUpdate = { row: number; col: number; color: string }
 export type DrawCellFn = (row: number, col: number, color: string) => void
 export type DrawFullGridFn = (grid: Map<string, string>) => void
 
-export function usePixelGrid() {
+export function usePixelGrid(isAdmin: boolean) {
   const gridRef = useRef(new Map<string, string>())
   const batchQueue = useRef<CellUpdate[]>([])
   const channelRef = useRef<RealtimeChannel | null>(null)
@@ -24,6 +27,9 @@ export function usePixelGrid() {
   const [isConnected, setIsConnected] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [participantCount, setParticipantCount] = useState(0)
+  const [lockState, setLockStateLocal] = useState<'open' | 'paused'>('open')
+
+  const isEditingEnabled = lockState === 'open' || isAdmin
 
   const registerDrawFunctions = useCallback(
     (
@@ -51,25 +57,52 @@ export function usePixelGrid() {
       .eq('id', 'main')
   }, [])
 
-  const paintCell = useCallback((row: number, col: number, color: string) => {
-    const key = `${row}-${col}`
-    gridRef.current.set(key, color)
-    drawCellRef.current?.(row, col, color)
-    batchQueue.current.push({ row, col, color })
-  }, [])
+  const setLockState = useCallback(
+    async (next: 'open' | 'paused') => {
+      await supabase
+        .from('pixel_grid')
+        .update({ lock_state: next, lock_updated_at: new Date().toISOString() })
+        .eq('id', 'main')
+
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: EVENT_LOCK,
+        payload: { lock_state: next },
+      })
+
+      setLockStateLocal(next)
+
+      if (next === 'paused') {
+        saveSnapshot()
+      }
+    },
+    [saveSnapshot]
+  )
+
+  const paintCell = useCallback(
+    (row: number, col: number, color: string) => {
+      if (!isEditingEnabled) return
+
+      const key = `${row}-${col}`
+      gridRef.current.set(key, color)
+      drawCellRef.current?.(row, col, color)
+      batchQueue.current.push({ row, col, color })
+    },
+    [isEditingEnabled]
+  )
 
   const clearGrid = useCallback(() => {
+    if (!isAdmin) return
+
     gridRef.current.clear()
     drawFullGridRef.current?.(gridRef.current)
-    // Broadcast clear to other clients
     channelRef.current?.send({
       type: 'broadcast',
-      event: 'clear',
+      event: EVENT_CLEAR,
       payload: {},
     })
-    // Persist immediately
     saveSnapshot()
-  }, [saveSnapshot])
+  }, [saveSnapshot, isAdmin])
 
   useEffect(() => {
     let batchInterval: ReturnType<typeof setInterval>
@@ -80,7 +113,7 @@ export function usePixelGrid() {
       // Load initial state from DB
       const { data } = await supabase
         .from('pixel_grid')
-        .select('state')
+        .select('state, lock_state')
         .eq('id', 'main')
         .single()
 
@@ -93,6 +126,10 @@ export function usePixelGrid() {
         }
       }
 
+      if (data?.lock_state === 'open' || data?.lock_state === 'paused') {
+        setLockStateLocal(data.lock_state)
+      }
+
       drawFullGridRef.current?.(gridRef.current)
       setIsLoading(false)
 
@@ -102,13 +139,21 @@ export function usePixelGrid() {
       })
 
       channel
-        .on('broadcast', { event: 'clear' }, () => {
+        .on('broadcast', { event: EVENT_LOCK }, (msg) => {
+          if (!mounted) return
+          const next = msg.payload.lock_state as 'open' | 'paused'
+          setLockStateLocal(next)
+          if (next === 'paused') {
+            batchQueue.current = []
+          }
+        })
+        .on('broadcast', { event: EVENT_CLEAR }, () => {
           if (!mounted) return
           console.log('[rt] ← received clear')
           gridRef.current.clear()
           drawFullGridRef.current?.(gridRef.current)
         })
-        .on('broadcast', { event: 'paint' }, (msg) => {
+        .on('broadcast', { event: EVENT_PAINT }, (msg) => {
           if (!mounted) return
           console.log('[rt] ← received broadcast', msg)
           const cells = msg.payload.cells as CellUpdate[]
@@ -141,7 +186,7 @@ export function usePixelGrid() {
         const cells = batchQueue.current.splice(0, BATCH_MAX_CELLS)
         const result = await channel.send({
           type: 'broadcast',
-          event: 'paint',
+          event: EVENT_PAINT,
           payload: { cells },
         })
         console.log('[rt] → sent batch', cells.length, 'cells, result:', result)
@@ -184,5 +229,8 @@ export function usePixelGrid() {
     isLoading,
     participantCount,
     registerDrawFunctions,
+    lockState,
+    isEditingEnabled,
+    setLockState,
   }
 }

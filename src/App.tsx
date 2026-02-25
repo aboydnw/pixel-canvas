@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { COLORS } from './lib/constants'
 import { usePixelGrid } from './hooks/usePixelGrid'
 import { PixelCanvas } from './components/PixelCanvas'
@@ -25,6 +25,11 @@ function CameraIcon() {
 }
 
 export default function App() {
+  const isAdmin = useMemo(() => {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('admin') === '1'
+  }, [])
+
   const [selectedColor, setSelectedColor] = useState<string>(COLORS[0])
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const {
@@ -36,7 +41,10 @@ export default function App() {
     isLoading,
     participantCount,
     registerDrawFunctions,
-  } = usePixelGrid()
+    lockState,
+    isEditingEnabled,
+    setLockState,
+  } = usePixelGrid(isAdmin)
 
   const handleClearConfirm = useCallback(() => {
     clearGrid()
@@ -50,6 +58,31 @@ export default function App() {
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center gap-4 overflow-hidden bg-[#1a1a2e]">
+      {/* Admin toolbar */}
+      {isAdmin && (
+        <div className="fixed top-4 left-4 z-50 flex items-center gap-2">
+          <button
+            onClick={() => setLockState(lockState === 'open' ? 'paused' : 'open')}
+            className="rounded-full bg-black/50 px-4 py-2 text-sm font-medium text-white backdrop-blur-md transition-colors hover:bg-black/70"
+          >
+            {lockState === 'open' ? '⏸ Pause' : '▶ Start'}
+          </button>
+          <button
+            onClick={() => setShowClearConfirm(true)}
+            className="rounded-full bg-black/50 px-4 py-2 text-sm font-medium text-white backdrop-blur-md transition-colors hover:bg-black/70"
+          >
+            🗑 Clear
+          </button>
+        </div>
+      )}
+
+      {/* Paused banner for non-admin */}
+      {!isEditingEnabled && !isAdmin && (
+        <div className="fixed top-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-yellow-500/90 px-4 py-2 text-sm font-medium text-black">
+          ⏸ Canvas is paused
+        </div>
+      )}
+
       {/* Connection indicator + participant count */}
       <div className="fixed top-4 right-4 z-10 flex items-center gap-2">
         {participantCount > 0 && (
@@ -81,6 +114,7 @@ export default function App() {
           gridRef={gridRef}
           paintCell={paintCell}
           registerDrawFunctions={registerDrawFunctions}
+          isReadOnly={!isEditingEnabled}
         />
       </div>
 
@@ -89,7 +123,7 @@ export default function App() {
         <ColorPicker
           selectedColor={selectedColor}
           onSelectColor={setSelectedColor}
-          onClear={() => setShowClearConfirm(true)}
+          onClear={isAdmin ? () => setShowClearConfirm(true) : undefined}
         />
       )}
 

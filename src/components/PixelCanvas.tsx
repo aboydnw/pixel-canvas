@@ -17,6 +17,7 @@ interface Props {
     drawFullGrid: DrawFullGridFn,
     canvasEl?: HTMLCanvasElement | null
   ) => void
+  isReadOnly: boolean
 }
 
 function getCellSize() {
@@ -44,7 +45,13 @@ function cellsOnLine(r0: number, c0: number, r1: number, c1: number): [number, n
   return cells
 }
 
-export function PixelCanvas({ selectedColor, gridRef, paintCell, registerDrawFunctions }: Props) {
+export function PixelCanvas({
+  selectedColor,
+  gridRef,
+  paintCell,
+  registerDrawFunctions,
+  isReadOnly,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const isPointerDown = useRef(false)
   const lastCell = useRef<[number, number] | null>(null)
@@ -163,18 +170,26 @@ export function PixelCanvas({ selectedColor, gridRef, paintCell, registerDrawFun
     lastCell.current = [row, col]
   }, [cellFromEvent, paintCell, selectedColor])
 
-  const handlePointerDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-    if ('touches' in e) e.preventDefault()
-    isPointerDown.current = true
-    lastCell.current = null
-    handlePaint(e)
-  }, [handlePaint])
+  const handlePointerDown = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      if (isReadOnly) return
+      if ('touches' in e) e.preventDefault()
+      isPointerDown.current = true
+      lastCell.current = null
+      handlePaint(e)
+    },
+    [handlePaint, isReadOnly]
+  )
 
-  const handlePointerMove = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-    if (!isPointerDown.current) return
-    if ('touches' in e) e.preventDefault()
-    handlePaint(e)
-  }, [handlePaint])
+  const handlePointerMove = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      if (isReadOnly) return
+      if (!isPointerDown.current) return
+      if ('touches' in e) e.preventDefault()
+      handlePaint(e)
+    },
+    [handlePaint, isReadOnly]
+  )
 
   const handlePointerUp = useCallback(() => {
     isPointerDown.current = false
@@ -184,7 +199,7 @@ export function PixelCanvas({ selectedColor, gridRef, paintCell, registerDrawFun
   return (
     <canvas
       ref={canvasRef}
-      className="block cursor-crosshair rounded-sm"
+      className={`block rounded-sm ${isReadOnly ? 'cursor-not-allowed' : 'cursor-crosshair'}`}
       style={{ touchAction: 'none' }}
       onMouseDown={handlePointerDown}
       onMouseMove={handlePointerMove}

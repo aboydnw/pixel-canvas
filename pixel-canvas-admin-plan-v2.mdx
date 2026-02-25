@@ -26,13 +26,7 @@ alter table pixel_grid
 
 ## Environment
 
-Add to `.env.local` and Vercel env vars:
-
-```
-VITE_ADMIN_KEY=<generate-random-16-char-string>
-```
-
-Admin URL: `?admin=1&key=<ADMIN_KEY>`
+No additional env vars needed for admin. Admin URL: `?admin=1`
 
 ---
 
@@ -109,7 +103,7 @@ return {
 ```ts
 const isAdmin = useMemo(() => {
   const params = new URLSearchParams(window.location.search)
-  return params.get('admin') === '1' && params.get('key') === import.meta.env.VITE_ADMIN_KEY
+  return params.get('admin') === '1'
 }, [])
 ```
 
@@ -311,7 +305,7 @@ This works regardless of lock state — users can screenshot while paused or ope
 
 ### Deploy steps
 1. Run migration SQL in Supabase dashboard
-2. Add `VITE_ADMIN_KEY` to Vercel environment variables
+2. (No admin env vars needed)
 3. `npm run build` — verify clean build
 4. Deploy to Vercel
 5. Push to GitHub
@@ -346,7 +340,7 @@ This works regardless of lock state — users can screenshot while paused or ope
 | `src/components/PixelCanvas.tsx` | Add `isReadOnly` prop, guard pointer handlers, cursor style |
 | `src/components/ColorPicker.tsx` | Make `onClear` optional, conditionally render clear button |
 | `src/components/ConfirmModal.tsx` | No changes |
-| `.env.local` | Add `VITE_ADMIN_KEY` |
+| `.env.local` | No changes for admin |
 
 ---
 
